@@ -38,11 +38,11 @@ func (m *match) String() string {
 // - don't try to print contents of binary files
 // - handle different text encodings?
 // - regex patterns (not just text)
-// - exit codes
 // - various flags
 // - search stdin if no input files
 // - read symlinks in input files
 // - parallelize for performance
+// - wild card search (go\*.go)
 
 func main() {
 
@@ -50,6 +50,7 @@ func main() {
 
 	if flag.NArg() < 2 {
 		printUsage()
+		os.Exit(exitError)
 		return
 	}
 
@@ -75,8 +76,13 @@ func main() {
 		fmt.Println(result)
 	}
 
-	// TODO: use proper exit code
-	os.Exit(exitMatchesFound)
+	var exit int
+	if matchFound {
+		exit = exitMatchesFound
+	} else {
+		exit = exitNoMatches
+	}
+	os.Exit(exit)
 }
 
 func printUsage() {
