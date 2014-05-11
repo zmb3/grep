@@ -38,11 +38,8 @@ func (m *match) String() string {
 // TODO
 // - don't try to print contents of binary files
 // - handle different text encodings?
-// - regex patterns (not just text)
-// - various flags
 // - search stdin if no input files
 // - parallelize for performance
-// - wild card search (go\*.go)
 
 func main() {
 	flag.Usage = func() {
@@ -162,13 +159,29 @@ func scanFile(filename string, pattern string, c chan *match) (bool, error) {
 	scanner := bufio.NewScanner(file)
 	var matchFound bool = false
 	for scanner.Scan() {
-		line := scanner.Text()
-		found := strings.Contains(line, pattern)
+		line := strings.TrimSpace(scanner.Text())
+		// convert to lower case if ignoreCase is enabled
+		// TODO: might be faster to use strings.EqualFold()
+		if *ignoreCase {
+			line = strings.ToLower(line)
+			pattern = strings.ToLower(pattern)
+		}
+
+		// we either look for a substring or an exact match
+		// (depending on whether the "whole line" flag is enabled)
+		var found bool
+		if *wholeLine {
+			found = line == pattern
+		} else {
+			found = strings.Contains(line, pattern)
+		}
+
+		// we return a match based on the find result and the invert flag
 		if found != *invert {
 			matchFound = true
 			result := &match{
 				filename,
-				strings.TrimSpace(line),
+				line,
 			}
 			c <- result
 		}
