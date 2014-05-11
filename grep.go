@@ -162,7 +162,9 @@ func scanFile(filename string, pattern string, c chan *match) (bool, error) {
 	scanner := bufio.NewScanner(file)
 	var matchFound bool = false
 	for scanner.Scan() {
-		if line := scanner.Text(); strings.Contains(line, pattern) {
+		line := scanner.Text()
+		found := strings.Contains(line, pattern)
+		if found != *invert {
 			matchFound = true
 			result := &match{
 				filename,
