@@ -45,11 +45,14 @@ func (m *match) String() string {
 // - wild card search (go\*.go)
 
 func main() {
-
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: grep [options] PATTERN INPUT_FILES\n")
+		fmt.Fprintf(os.Stderr, "Options:\n")
+		flag.PrintDefaults()
+	}
 	flag.Parse()
-
 	if flag.NArg() < 2 {
-		printUsage()
+		flag.Usage()
 		os.Exit(exitError)
 		return
 	}
@@ -83,12 +86,6 @@ func main() {
 		exit = exitNoMatches
 	}
 	os.Exit(exit)
-}
-
-func printUsage() {
-	fmt.Fprintf(os.Stderr, "Usage: grep [options] PATTERN INPUT_FILES\n")
-	fmt.Fprintf(os.Stderr, "Options:\n")
-	flag.PrintDefaults()
 }
 
 // inputFiles generates the list of all files that must be searched,
