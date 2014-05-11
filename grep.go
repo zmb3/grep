@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -40,7 +41,6 @@ func (m *match) String() string {
 // - regex patterns (not just text)
 // - various flags
 // - search stdin if no input files
-// - read symlinks in input files
 // - parallelize for performance
 // - wild card search (go\*.go)
 
@@ -60,6 +60,8 @@ func main() {
 	fmt.Println(recurse, ignoreCase, invert, wholeLine)
 
 	files := inputFiles(flag.Args()[1:])
+
+	//fmt.Printf("files: %v\n", files)
 	c := make(chan *match)
 
 	// search each file, line-by-line, writing results to c
@@ -92,26 +94,32 @@ func main() {
 // given a particular set of input arguments.
 func inputFiles(input []string) []string {
 	var result []string
-	for _, item := range input {
-		info, err := os.Stat(item)
+	// first get all the files in this directory that match the pattern
+	for _, glob := range input {
+		items, err := filepath.Glob(glob)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %s\n", err.Error())
+			fmt.Fprintf(os.Stderr, "Error %s\n", err.Error())
 			continue
 		}
-		// we handle 3 cases:  1) regular files, 2) directories, 3) symlinks
-		if info.Mode().IsRegular() {
-			result = append(result, item)
-		} else if info.Mode().IsDir() {
-			subdir, err := getFilesInDir(item, *recurse)
+		if items == nil {
+			fmt.Fprintf(os.Stderr, "No match for %s\n", glob)
+			continue
+		}
+		// for each glob match, add the regular files, and optionally recurse into subdirectories
+		for _, file := range items {
+			fileInfo, err := os.Stat(file)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %s\n", err.Error())
+				fmt.Fprintf(os.Stderr, "%s\n", err.Error())
 				continue
 			}
-			result = append(result, subdir...)
-		} else if info.Mode()&os.ModeSymlink > 0 {
-			// TODO follow symlink
-		} else {
-			fmt.Fprintf(os.Stderr, "Skipping %s (unknown file type)\n", info.Name())
+			if fileInfo.Mode().IsRegular() {
+				result = append(result, file)
+			} else if fileInfo.Mode().IsDir() && *recurse {
+				files, err := getFilesInDir(file, true)
+				if err == nil {
+					result = append(result, files...)
+				}
+			}
 		}
 	}
 	return result
@@ -132,7 +140,7 @@ func getFilesInDir(dir string, recurse bool) ([]string, error) {
 		} else if item.IsDir() && recurse {
 			subdir, err := getFilesInDir(path.Join(dir, item.Name()), true)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting dir: %s\n", err.Error())
+				// TODO: ignore??
 				continue
 			}
 			results = append(results, subdir...)
@@ -158,7 +166,7 @@ func scanFile(filename string, pattern string, c chan *match) (bool, error) {
 			matchFound = true
 			result := &match{
 				filename,
-				line,
+				strings.TrimSpace(line),
 			}
 			c <- result
 		}
