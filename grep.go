@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"path"
@@ -38,38 +39,45 @@ func (m *match) String() string {
 // TODO
 // - don't try to print contents of binary files
 // - handle different text encodings?
-// - search stdin if no input files
 // - parallelize for performance
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: grep [options] PATTERN INPUT_FILES\n")
+		fmt.Fprintf(os.Stderr, "Usage: grep [options] <PATTERN> [INPUT_FILES]\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
-	if flag.NArg() < 2 {
+	if flag.NArg() < 1 {
 		flag.Usage()
 		os.Exit(exitError)
 		return
 	}
 
-	fmt.Println(recurse, ignoreCase, invert, wholeLine)
-
 	files := inputFiles(flag.Args()[1:])
-
-	//fmt.Printf("files: %v\n", files)
 	c := make(chan *match)
 
-	// search each file, line-by-line, writing results to c
+	// kick off a goroutine that performs the search and writes matches to c
+	// (we either search stdin or a set of files)
 	go func() {
-		for _, file := range files {
-			_, _ = scanFile(file, flag.Arg(0), c)
+		if len(files) == 0 {
+			scanFile("stdin", os.Stdin, flag.Arg(0), c)
+		} else {
+			for _, filename := range files {
+				file, err := os.Open(filename)
+				if err != nil {
+					continue
+				}
+				defer file.Close()
+				scanFile(filename, file, flag.Arg(0), c)
+			}
 		}
 		close(c)
 	}()
 
-	// display matching lines
+	// display matching lines.  a match is considered anything that procudes output
+	// (so if the invert flag is enabled, a match is actually a line that didn't
+	// match the specified pattern)
 	matchFound := false
 	for result := range c {
 		if !matchFound {
@@ -102,7 +110,8 @@ func inputFiles(input []string) []string {
 			fmt.Fprintf(os.Stderr, "No match for %s\n", glob)
 			continue
 		}
-		// for each glob match, add the regular files, and optionally recurse into subdirectories
+		// for each glob match, add it to the search list if it is a regular file,
+		// or recurse if the recurse flag is enabled and the match is a directory
 		for _, file := range items {
 			fileInfo, err := os.Stat(file)
 			if err != nil {
@@ -122,7 +131,7 @@ func inputFiles(input []string) []string {
 	return result
 }
 
-// getFilesInDir returns a slice containing the names of all files
+// getFilesInDir returns a slice containing the names of all regular files
 // in a particular directory, optionally recursing into subdirectories.
 // It does not follow symbolic links.
 func getFilesInDir(dir string, recurse bool) ([]string, error) {
@@ -146,17 +155,12 @@ func getFilesInDir(dir string, recurse bool) ([]string, error) {
 	return results, nil
 }
 
-// scanFile reads the specified file and checks whether any of the lines
-// match the specified pattern.  It writes any matches to the channel c.
-// scanFile returns a bool indicating whether a match was found, and
-// an error (if one occurred).
-func scanFile(filename string, pattern string, c chan *match) (bool, error) {
-	file, err := os.Open(filename)
-	if err != nil {
-		return false, err
-	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
+// scanFile reads the from the specified Reader and checks whether any
+// of the lines match the specified pattern.  It writes any matches to the
+// channel c.  scanFile returns a bool indicating whether a match was found,
+// and an error (if one occurred).
+func scanFile(filename string, rc io.Reader, pattern string, c chan *match) (bool, error) {
+	scanner := bufio.NewScanner(rc)
 	var matchFound bool = false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
