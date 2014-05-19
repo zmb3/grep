@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 var (
@@ -183,11 +184,21 @@ func scanFile(filename string, rc io.Reader, pattern string, c chan *match) (boo
 		// we return a match based on the find result and the invert flag
 		if found != *invert {
 			matchFound = true
+			// if the string isn't valid utf8, we'll consider the file binary
+			binary := !utf8.ValidString(line)
+			if binary {
+				line = "Binary File Matches"
+			}
 			result := &match{
 				filename,
 				line,
 			}
 			c <- result
+
+			// we don't need multiple "binary file matches" messages
+			if binary {
+				break
+			}
 		}
 	}
 	return matchFound, nil
